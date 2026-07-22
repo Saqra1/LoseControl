@@ -239,6 +239,40 @@ local anchors = {
 	-- more to come here?
 }
 
+local function ResolveAnchor(anchorType, unitId)
+	if anchorType == "ShadowedUnitFrames" then
+		local shadowUF = _G.ShadowUF
+		local unitFrames = shadowUF and shadowUF.Units and shadowUF.Units.unitFrames
+		local unitFrame = unitFrames and unitFrames[unitId]
+		if not unitFrame then return end
+
+		-- SUF portraits are not named globals. They can also be either textures or
+		-- PlayerModel frames, depending on the user's portrait configuration.
+		if unitFrame.portrait and unitFrame.visibility and unitFrame.visibility.portrait then
+			return unitFrame.portrait
+		end
+		return unitFrame
+	end
+
+	local unitAnchors = anchors[anchorType]
+	local anchorName = unitAnchors and unitAnchors[unitId]
+	return anchorName and _G[anchorName]
+end
+
+local function ResolveAnchorParent(anchor)
+	if anchor == UIParent or anchor.GetDrawLayer then
+		return anchor:GetParent()
+	end
+	return anchor
+end
+
+local function RestoreAnchorDrawLayer(icon)
+	if icon.anchor and icon.drawlayer and icon.anchor.SetDrawLayer then
+		icon.anchor:SetDrawLayer(icon.drawlayer)
+	end
+	icon.drawlayer = nil
+end
+
 local ALL_CATS = {
 	"Immune",
 	"CC",
@@ -382,9 +416,13 @@ LoseControl:RegisterEvent("ADDON_LOADED")
 function LoseControl:PLAYER_ENTERING_WORLD() -- this correctly anchors enemy arena frames that aren't created until you zone into an arena
 	self.frame = LoseControlDB.frames[self.unitId] -- store a local reference to the frame's settings
 	local frame = self.frame
-	self.anchor = _G[anchors[frame.anchor][self.unitId]] or UIParent
+	local anchor = ResolveAnchor(frame.anchor, self.unitId) or UIParent
+	if anchor ~= self.anchor then
+		RestoreAnchorDrawLayer(self)
+		self.anchor = anchor
+	end
 
-	self:SetParent(self.anchor:GetParent()) -- or LoseControl) -- If Hide() is called on the parent frame, its children are hidden too. This also sets the frame strata to be the same as the parent's.
+	self:SetParent(ResolveAnchorParent(self.anchor)) -- If Hide() is called on the parent frame, its children are hidden too. This also sets the frame strata to be the same as the parent's.
 	--self:SetFrameStrata(frame.strata or "LOW")
 	self:ClearAllPoints() -- if we don't do this then the frame won't always move
 	self:SetWidth(frame.size)
@@ -413,8 +451,14 @@ local UnitBuff = UnitBuff
 -- This is the main event
 function LoseControl:UNIT_AURA(unitId) -- fired when a (de)buff is gained/lost
 	local frame = LoseControlDB.frames[unitId]
+	if unitId ~= self.unitId or not frame then return end
+
+	local anchor = ResolveAnchor(frame.anchor, unitId) or UIParent
+	if anchor ~= self.anchor then
+		self:PLAYER_ENTERING_WORLD()
+	end
 	
-	if not (unitId == self.unitId and frame.enabled and self.anchor:IsVisible()) then return end
+	if not (frame.enabled and self.anchor:IsVisible()) then return end
 
 	-- the unit is currently kicked, don't show anything else
 	if self:GetKick() then return end
@@ -502,6 +546,10 @@ function LoseControl:COMBAT_LOG_EVENT_UNFILTERED(...)
 
 	local interruptDuration = INTERRUPTS[spellId]
 	if not interruptDuration then return end
+	local anchor = ResolveAnchor(frame.anchor, self.unitId) or UIParent
+	if anchor ~= self.anchor then
+		self:PLAYER_ENTERING_WORLD()
+	end
 
 	self.interrupt = GetTime() + interruptDuration
 	local icon = select(3, GetSpellInfo(spellId))
@@ -510,11 +558,16 @@ end
 
 function LoseControl:DisplayIcon(frame, Icon, start, duration)
 	if self.anchor ~= UIParent then
-		self:SetFrameLevel(self.anchor:GetParent():GetFrameLevel()) -- must be dynamic, frame level changes all the time
-		if not self.drawlayer then
-			self.drawlayer = self.anchor:GetDrawLayer() -- back up the current draw layer
+		local anchorParent = self.anchor:GetParent()
+		if self.anchor.GetFrameLevel then
+			self:SetFrameLevel(self.anchor:GetFrameLevel() + 1)
+		elseif anchorParent and anchorParent.GetFrameLevel then
+			self:SetFrameLevel(anchorParent:GetFrameLevel()) -- must be dynamic, frame level changes all the time
 		end
-		self.anchor:SetDrawLayer("BACKGROUND") -- Temporarily put the portrait texture below the debuff texture. This is the only reliable method I've found for keeping the debuff texture visible with the cooldown spiral on top of it.
+		if not self.drawlayer and self.anchor.GetDrawLayer and self.anchor.SetDrawLayer then
+			self.drawlayer = self.anchor:GetDrawLayer() -- back up the current draw layer
+			self.anchor:SetDrawLayer("BACKGROUND") -- Temporarily put the portrait texture below the debuff texture. This is the only reliable method I've found for keeping the debuff texture visible with the cooldown spiral on top of it.
+		end
 	end
 	if frame.anchor == "Blizzard" then
 		SetPortraitToTexture(self.texture, Icon) -- Sets the texture to be displayed from a file applying a circular opacity mask making it look round like portraits. TO DO: mask the cooldown frame somehow so the corners don't stick out of the portrait frame. Maybe apply a circular alpha mask in the OVERLAY draw layer.
@@ -536,9 +589,7 @@ end
 
 function LoseControl:ClearIcon()
 	self.maxExpirationTime = 0
-	if self.anchor ~= UIParent and self.drawlayer then
-		self.anchor:SetDrawLayer(self.drawlayer) -- restore the original draw layer
-	end
+	RestoreAnchorDrawLayer(self)
 	self:Hide()
 end
 
@@ -576,7 +627,8 @@ function LoseControl:StopMoving()
 			UIDropDownMenu_SetSelectedValue(AnchorDropDown, "None") -- update the drop down to show that the frame has been detached from the anchor
 		end
 	end
-	self.anchor = _G[anchors[frame.anchor][self.unitId]] or UIParent
+	RestoreAnchorDrawLayer(self)
+	self.anchor = ResolveAnchor(frame.anchor, self.unitId) or UIParent
 	self:StopMovingOrSizing()
 end
 
@@ -653,7 +705,7 @@ function Unlock:OnClick()
 		end
 		for k, v in pairs(LC) do
 			local frame = LoseControlDB.frames[k]
-			if _G[anchors[frame.anchor][k]] or frame.anchor == "None" then -- only unlock frames whose anchor exists
+			if ResolveAnchor(frame.anchor, k) or frame.anchor == "None" then -- only unlock frames whose anchor exists
 				v:UnregisterEvent("UNIT_AURA")
 				v:UnregisterEvent("PLAYER_FOCUS_CHANGED")
 				v:UnregisterEvent("PLAYER_TARGET_CHANGED")
@@ -684,7 +736,7 @@ function Unlock:OnClick()
 			v:SetMovable(false)
 			v:RegisterForDrag()
 			v:EnableMouse(false)
-			v:SetParent(v.anchor:GetParent()) -- or UIParent)
+			v:SetParent(ResolveAnchorParent(v.anchor))
 			--v:SetFrameStrata(frame.strata or "LOW")
 			v:Hide()
 		end
@@ -788,10 +840,11 @@ function AnchorDropDown:OnClick()
 		frame.y = nil
 	end
 
-	icon.anchor = _G[anchors[frame.anchor][unit]] or UIParent
+	RestoreAnchorDrawLayer(icon)
+	icon.anchor = ResolveAnchor(frame.anchor, unit) or UIParent
 
 	if not Unlock:GetChecked() then -- prevents the icon from disappearing if the frame is currently hidden
-		icon:SetParent(icon.anchor:GetParent())
+		icon:SetParent(ResolveAnchorParent(icon.anchor))
 	end
 
 	icon:ClearAllPoints() -- if we don't do this then the frame won't always move
@@ -809,6 +862,7 @@ function AnchorDropDown:initialize() -- called from OptionsPanel.refresh() and e
 	AddItem(self, "Blizzard", "Blizzard")
 	if _G[anchors["Perl"][unit]] then AddItem(self, "Perl", "Perl") end
 	if _G[anchors["XPerl"][unit]] then AddItem(self, "XPerl", "XPerl") end
+	if _G.ShadowUF then AddItem(self, "Shadowed Unit Frames", "ShadowedUnitFrames") end
 end
 
 local StrataDropDownLabel = OptionsPanel:CreateFontString(O.."StrataDropDownLabel", "ARTWORK", "GameFontNormal")

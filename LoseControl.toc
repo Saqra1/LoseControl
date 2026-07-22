@@ -15,6 +15,7 @@
 ## X-Website: http://wow.curse.com/downloads/wow-addons/details/losecontrol.aspx
 ## X-Website2: http://www.wowinterface.com/downloads/info11642-LoseControl.html
 ## X-Category: Buffs
+## OptionalDeps: ShadowedUnitFrames
 ## SavedVariablesPerCharacter: LoseControlDB
 
 localization.lua
