@@ -706,21 +706,16 @@ function Unlock:OnClick()
 		for k, v in pairs(LC) do
 			local frame = LoseControlDB.frames[k]
 			if ResolveAnchor(frame.anchor, k) or frame.anchor == "None" then -- only unlock frames whose anchor exists
+				local testIcon = select(3, GetSpellInfo(keys[random(#keys)]))
 				v:UnregisterEvent("UNIT_AURA")
 				v:UnregisterEvent("PLAYER_FOCUS_CHANGED")
 				v:UnregisterEvent("PLAYER_TARGET_CHANGED")
 				v:SetMovable(true)
 				v:RegisterForDrag("LeftButton")
 				v:EnableMouse(true)
-				v.texture:SetTexture(select(3, GetSpellInfo(keys[random(#keys)])))
 				v:SetParent(nil) -- detach the frame from its parent or else it won't show if the parent is hidden
 				--v:SetFrameStrata(frame.strata or "MEDIUM")
-				if v.anchor:GetParent() then
-					v:SetFrameLevel(v.anchor:GetParent():GetFrameLevel())
-				end
-				v:Show()
-				v:SetCooldown( GetTime(), 30 )
-				v:SetAlpha(frame.alpha) -- hack to apply the alpha to the cooldown timer
+				v:DisplayIcon(frame, testIcon, GetTime(), 30)
 			end
 		end
 	else
@@ -738,7 +733,7 @@ function Unlock:OnClick()
 			v:EnableMouse(false)
 			v:SetParent(ResolveAnchorParent(v.anchor))
 			--v:SetFrameStrata(frame.strata or "LOW")
-			v:Hide()
+			v:ClearIcon()
 		end
 	end
 end
