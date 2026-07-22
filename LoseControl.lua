@@ -705,7 +705,7 @@ function Unlock:OnClick()
 		end
 		for k, v in pairs(LC) do
 			local frame = LoseControlDB.frames[k]
-			if ResolveAnchor(frame.anchor, k) or frame.anchor == "None" then -- only unlock frames whose anchor exists
+			if frame.enabled and (ResolveAnchor(frame.anchor, k) or frame.anchor == "None") then -- only unlock enabled frames whose anchor exists
 				local testIcon = select(3, GetSpellInfo(keys[random(#keys)]))
 				v:UnregisterEvent("UNIT_AURA")
 				v:UnregisterEvent("PLAYER_FOCUS_CHANGED")
