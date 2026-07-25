@@ -266,6 +266,19 @@ local function ResolveAnchorParent(anchor)
 	return anchor
 end
 
+local function ApplyAnchorScale(icon, frame)
+	icon:SetScale(1)
+	if frame.anchor ~= "ShadowedUnitFrames" then return end
+
+	local anchorParent = ResolveAnchorParent(icon.anchor)
+	if not anchorParent or icon:GetParent() ~= anchorParent or not anchorParent.GetEffectiveScale then return end
+
+	local parentScale = anchorParent:GetEffectiveScale()
+	if parentScale and parentScale > 0 then
+		icon:SetScale(1 / parentScale)
+	end
+end
+
 local function RestoreAnchorDrawLayer(icon)
 	if icon.anchor and icon.drawlayer and icon.anchor.SetDrawLayer then
 		icon.anchor:SetDrawLayer(icon.drawlayer)
@@ -423,6 +436,7 @@ function LoseControl:PLAYER_ENTERING_WORLD() -- this correctly anchors enemy are
 	end
 
 	self:SetParent(ResolveAnchorParent(self.anchor)) -- If Hide() is called on the parent frame, its children are hidden too. This also sets the frame strata to be the same as the parent's.
+	ApplyAnchorScale(self, frame)
 	--self:SetFrameStrata(frame.strata or "LOW")
 	self:ClearAllPoints() -- if we don't do this then the frame won't always move
 	self:SetWidth(frame.size)
@@ -557,6 +571,7 @@ function LoseControl:COMBAT_LOG_EVENT_UNFILTERED(...)
 end
 
 function LoseControl:DisplayIcon(frame, Icon, start, duration)
+	ApplyAnchorScale(self, frame)
 	if self.anchor ~= UIParent then
 		local anchorParent = self.anchor:GetParent()
 		if self.anchor.GetFrameLevel then
@@ -714,6 +729,7 @@ function Unlock:OnClick()
 				v:RegisterForDrag("LeftButton")
 				v:EnableMouse(true)
 				v:SetParent(nil) -- detach the frame from its parent or else it won't show if the parent is hidden
+				ApplyAnchorScale(v, frame)
 				--v:SetFrameStrata(frame.strata or "MEDIUM")
 				v:DisplayIcon(frame, testIcon, GetTime(), 30)
 			end
@@ -840,6 +856,7 @@ function AnchorDropDown:OnClick()
 
 	if not Unlock:GetChecked() then -- prevents the icon from disappearing if the frame is currently hidden
 		icon:SetParent(ResolveAnchorParent(icon.anchor))
+		ApplyAnchorScale(icon, frame)
 	end
 
 	icon:ClearAllPoints() -- if we don't do this then the frame won't always move
