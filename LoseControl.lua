@@ -477,6 +477,7 @@ function LoseControl:UNIT_AURA(unitId) -- fired when a (de)buff is gained/lost
 	-- the unit is currently kicked, don't show anything else
 	if self:GetKick() then return end
 	
+	local now = GetTime()
 	local maxExpirationTime = 0
 	local maxPriority = 99
 	local _, name, icon, Icon, duration, Duration, expirationTime, spellID
@@ -496,7 +497,7 @@ function LoseControl:UNIT_AURA(unitId) -- fired when a (de)buff is gained/lost
 			name = nil
 		end
 
-		if LoseControlDB.tracking[abilities[name]] then
+		if expirationTime and expirationTime > now and LoseControlDB.tracking[abilities[name]] then
 			-- only do indexof here to save on iterations
 			local prio = IndexOf(LoseControlDB.priorities, TypeMap[abilities[name]])
 			-- low prio = beginning of table = better 
@@ -515,7 +516,7 @@ function LoseControl:UNIT_AURA(unitId) -- fired when a (de)buff is gained/lost
 		for i = 1, 40 do
 			name, _, icon, _, _, duration, expirationTime = UnitBuff(unitId, i)
 			if not name then break
-			elseif abilities[name] == "Immune" and expirationTime > maxExpirationTime then
+			elseif abilities[name] == "Immune" and expirationTime > now and expirationTime > maxExpirationTime then
 				maxExpirationTime = expirationTime
 				Duration = duration
 				Icon = icon
@@ -533,7 +534,7 @@ end
 
 function LoseControl:GetKick()
 	if not self.interrupt then return end
-	if GetTime() > self.interrupt then
+	if GetTime() >= self.interrupt then
 		self.interrupt = nil
 		return false
 	end
@@ -565,7 +566,12 @@ function LoseControl:COMBAT_LOG_EVENT_UNFILTERED(...)
 		self:PLAYER_ENTERING_WORLD()
 	end
 
+	if not (frame.enabled and self.anchor:IsVisible()) then return end
+
 	self.interrupt = GetTime() + interruptDuration
+	-- The interrupt icon temporarily replaces any aura icon. Invalidate the
+	-- cached aura so UNIT_AURA restores it when the interrupt expires.
+	self.maxExpirationTime = 0
 	local icon = select(3, GetSpellInfo(spellId))
 	self:DisplayIcon(frame, icon, GetTime(), interruptDuration)
 end
@@ -598,6 +604,10 @@ function LoseControl:OnUpdate()
 	-- we *WERE* interrupted, but it just finished
 	if self.interrupt and not self:GetKick() then
 		-- trigger UNIT_AURA "manually". It will clear the frame if there is no aura to show.
+		self:UNIT_AURA(self.unitId)
+	elseif self.maxExpirationTime and self.maxExpirationTime > 0 and GetTime() >= self.maxExpirationTime then
+		-- UNIT_AURA should normally clear expired effects. Recheck here as a
+		-- fallback so a delayed or missed event cannot leave a stale icon.
 		self:UNIT_AURA(self.unitId)
 	end
 end
