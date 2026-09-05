@@ -601,6 +601,10 @@ function LoseControl:DisplayIcon(frame, Icon, start, duration)
 end
 
 function LoseControl:OnUpdate()
+	-- Unlock mode displays a positioning preview. Ignore any live aura or
+	-- interrupt state left over from before the preview was opened.
+	if self.testMode then return end
+
 	-- we *WERE* interrupted, but it just finished
 	if self.interrupt and not self:GetKick() then
 		-- trigger UNIT_AURA "manually". It will clear the frame if there is no aura to show.
@@ -724,14 +728,20 @@ _G[O.."UnlockText"]:SetText(LOSECONTROL["Unlock"])
 function Unlock:OnClick()
 	if self:GetChecked() then
 		_G[O.."UnlockText"]:SetText(LOSECONTROL["Unlock"] .. LOSECONTROL[" (drag an icon to move)"])
-		local keys = {} -- for random icon sillyness
-		for k in pairs(spellIds) do
-			tinsert(keys, k)
+		local testIcons = {} -- valid textures for random preview icon silliness
+		for spellId in pairs(spellIds) do
+			local icon = select(3, GetSpellInfo(spellId))
+			if icon then
+				tinsert(testIcons, icon)
+			end
 		end
 		for k, v in pairs(LC) do
 			local frame = LoseControlDB.frames[k]
-			if frame.enabled and (ResolveAnchor(frame.anchor, k) or frame.anchor == "None") then -- only unlock enabled frames whose anchor exists
-				local testIcon = select(3, GetSpellInfo(keys[random(#keys)]))
+			if #testIcons > 0 and frame.enabled and (ResolveAnchor(frame.anchor, k) or frame.anchor == "None") then -- only unlock enabled frames whose anchor exists
+				local testIcon = testIcons[random(#testIcons)]
+				v.testMode = true
+				v.interrupt = nil
+				v.maxExpirationTime = 0
 				v:UnregisterEvent("UNIT_AURA")
 				v:UnregisterEvent("PLAYER_FOCUS_CHANGED")
 				v:UnregisterEvent("PLAYER_TARGET_CHANGED")
@@ -740,7 +750,8 @@ function Unlock:OnClick()
 				v:EnableMouse(true)
 				v:SetParent(nil) -- detach the frame from its parent or else it won't show if the parent is hidden
 				ApplyAnchorScale(v, frame)
-				--v:SetFrameStrata(frame.strata or "MEDIUM")
+				-- The stock 3.3.5 Cooldown widget draws a square swipe even when
+				-- SetPortraitToTexture crops the underlying icon into a circle.
 				v:DisplayIcon(frame, testIcon, GetTime(), 30)
 			end
 		end
@@ -748,6 +759,7 @@ function Unlock:OnClick()
 		_G[O.."UnlockText"]:SetText(LOSECONTROL["Unlock"])
 		for k, v in pairs(LC) do
 			local frame = LoseControlDB.frames[k]
+			v.testMode = nil
 			v:RegisterEvent("UNIT_AURA")
 			if k == "focus" then
 				v:RegisterEvent("PLAYER_FOCUS_CHANGED")
